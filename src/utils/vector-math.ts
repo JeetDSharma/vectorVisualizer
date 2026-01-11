@@ -3,6 +3,12 @@ export interface Vector2D {
   y: number;
 }
 
+export interface Vector3D {
+  x: number;
+  y: number;
+  z: number;
+}
+
 export interface Matrix2D {
   a: number;
   b: number;
@@ -151,4 +157,80 @@ export const calculateEigenvector = (
   }
 
   return null;
+};
+
+// 3D Vector operations
+export const add3D = (v1: Vector3D, v2: Vector3D): Vector3D => ({
+  x: v1.x + v2.x,
+  y: v1.y + v2.y,
+  z: v1.z + v2.z,
+});
+
+export const scale3D = (v: Vector3D, scalar: number): Vector3D => ({
+  x: v.x * scalar,
+  y: v.y * scalar,
+  z: v.z * scalar,
+});
+
+export const magnitude3D = (v: Vector3D): number => {
+  return Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+};
+
+export const normalize3D = (v: Vector3D): Vector3D => {
+  const mag = magnitude3D(v);
+  if (mag === 0) return { x: 0, y: 0, z: 0 };
+  return { x: v.x / mag, y: v.y / mag, z: v.z / mag };
+};
+
+export const dot3D = (v1: Vector3D, v2: Vector3D): number => {
+  return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+};
+
+export const cross3D = (v1: Vector3D, v2: Vector3D): Vector3D => ({
+  x: v1.y * v2.z - v1.z * v2.y,
+  y: v1.z * v2.x - v1.x * v2.z,
+  z: v1.x * v2.y - v1.y * v2.x,
+});
+
+// 3D Rotation matrices
+export const rotateX3D = (v: Vector3D, angle: number): Vector3D => {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return {
+    x: v.x,
+    y: v.y * cos - v.z * sin,
+    z: v.y * sin + v.z * cos,
+  };
+};
+
+export const rotateY3D = (v: Vector3D, angle: number): Vector3D => {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return {
+    x: v.x * cos + v.z * sin,
+    y: v.y,
+    z: -v.x * sin + v.z * cos,
+  };
+};
+
+export const rotateZ3D = (v: Vector3D, angle: number): Vector3D => {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return {
+    x: v.x * cos - v.y * sin,
+    y: v.x * sin + v.y * cos,
+    z: v.z,
+  };
+};
+
+// Simple perspective projection
+export const project3D = (
+  v: Vector3D,
+  cameraDistance: number = 5
+): { x: number; y: number } => {
+  const scale = cameraDistance / (cameraDistance + v.z);
+  return {
+    x: v.x * scale,
+    y: v.y * scale,
+  };
 };
