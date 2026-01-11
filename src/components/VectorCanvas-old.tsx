@@ -1,20 +1,28 @@
 import { useRef, useEffect, useState, useCallback } from "react";
-import { Vector2D } from "../utils/vector-math";
+import {
+  Vector2D,
+  Matrix2D,
+  applyMatrix,
+  identityMatrix,
+  lerpMatrix,
+} from "../utils/vector-math";
 
 interface VectorCanvasProps {
   vectors: Vector2D[];
-  vectorScales: number[];
   onVectorUpdate: (index: number, vector: Vector2D) => void;
+  transformation: Matrix2D;
   showGrid: boolean;
-  showVectorSum: boolean;
+  showBasisVectors: boolean;
+  animationProgress: number;
 }
 
 export default function VectorCanvas({
   vectors,
-  vectorScales,
   onVectorUpdate,
+  transformation,
   showGrid,
-  showVectorSum,
+  showBasisVectors,
+  animationProgress,
 }: VectorCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
@@ -39,18 +47,19 @@ export default function VectorCanvas({
   }, []);
 
   const drawGrid = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      // Draw grid lines
+    (ctx: CanvasRenderingContext2D, matrix: Matrix2D) => {
+      // Draw grid lines with better visibility
       for (let i = -10; i <= 10; i++) {
         for (let j = -10; j <= 10; j++) {
-          const p1 = { x: i, y: j };
-          const p2 = { x: i + 1, y: j };
-          const p3 = { x: i, y: j + 1 };
+          const p1 = applyMatrix({ x: i, y: j }, matrix);
+          const p2 = applyMatrix({ x: i + 1, y: j }, matrix);
+          const p3 = applyMatrix({ x: i, y: j + 1 }, matrix);
 
           const s1 = worldToScreen(p1);
           const s2 = worldToScreen(p2);
           const s3 = worldToScreen(p3);
 
+          // Thicker lines for axes through origin
           const isMainGridLine = i === 0 || j === 0;
           ctx.strokeStyle = isMainGridLine
             ? "rgba(59, 130, 246, 0.4)"
@@ -69,15 +78,17 @@ export default function VectorCanvas({
         }
       }
 
-      // Draw coordinate labels
+      // Draw coordinate labels for main axes
       ctx.fillStyle = "rgba(147, 197, 253, 0.5)";
       ctx.font = "11px monospace";
       ctx.textAlign = "center";
 
       for (let i = -8; i <= 8; i += 2) {
         if (i === 0) continue;
-        const xScreen = worldToScreen({ x: i, y: 0 });
-        const yScreen = worldToScreen({ x: 0, y: i });
+        const xPos = applyMatrix({ x: i, y: 0 }, matrix);
+        const yPos = applyMatrix({ x: 0, y: i }, matrix);
+        const xScreen = worldToScreen(xPos);
+        const yScreen = worldToScreen(yPos);
 
         ctx.fillText(String(i), xScreen.x, xScreen.y + 15);
         ctx.fillText(String(i), yScreen.x - 15, yScreen.y);
@@ -87,6 +98,7 @@ export default function VectorCanvas({
   );
 
   const drawAxes = useCallback((ctx: CanvasRenderingContext2D) => {
+    // Draw main axes with 3B1B blue color
     ctx.strokeStyle = "rgba(96, 165, 250, 0.4)";
     ctx.lineWidth = 2;
 
@@ -100,6 +112,7 @@ export default function VectorCanvas({
     ctx.lineTo(centerX, 800);
     ctx.stroke();
 
+    // Add axis labels
     ctx.fillStyle = "rgba(147, 197, 253, 0.7)";
     ctx.font = "bold 14px sans-serif";
     ctx.textAlign = "center";
@@ -110,52 +123,42 @@ export default function VectorCanvas({
   const drawVector = useCallback(
     (
       ctx: CanvasRenderingContext2D,
-      start: Vector2D,
-      end: Vector2D,
+      v: Vector2D,
       color: string,
-      lineWidth: number = 3,
-      label?: string,
-      dashed: boolean = false
+      lineWidth: number = 2,
+      label?: string
     ) => {
-      const startScreen = worldToScreen(start);
-      const endScreen = worldToScreen(end);
+      const start = worldToScreen({ x: 0, y: 0 });
+      const end = worldToScreen(v);
 
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
       ctx.lineWidth = lineWidth;
 
-      if (dashed) {
-        ctx.setLineDash([8, 4]);
-      }
-
       ctx.beginPath();
-      ctx.moveTo(startScreen.x, startScreen.y);
-      ctx.lineTo(endScreen.x, endScreen.y);
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(end.x, end.y);
       ctx.stroke();
 
-      ctx.setLineDash([]);
-
-      const angle = Math.atan2(
-        endScreen.y - startScreen.y,
-        endScreen.x - startScreen.x
-      );
+      const angle = Math.atan2(end.y - start.y, end.x - start.x);
       const arrowLength = 15;
 
       ctx.beginPath();
-      ctx.moveTo(endScreen.x, endScreen.y);
+      ctx.moveTo(end.x, end.y);
       ctx.lineTo(
-        endScreen.x - arrowLength * Math.cos(angle - Math.PI / 6),
-        endScreen.y - arrowLength * Math.sin(angle - Math.PI / 6)
+        end.x - arrowLength * Math.cos(angle - Math.PI / 6),
+        end.y - arrowLength * Math.sin(angle - Math.PI / 6)
       );
       ctx.lineTo(
-        endScreen.x - arrowLength * Math.cos(angle + Math.PI / 6),
-        endScreen.y - arrowLength * Math.sin(angle + Math.PI / 6)
+        end.x - arrowLength * Math.cos(angle + Math.PI / 6),
+        end.y - arrowLength * Math.sin(angle + Math.PI / 6)
       );
       ctx.closePath();
       ctx.fill();
 
+      // Draw endpoint circle for better visibility
       ctx.beginPath();
-      ctx.arc(endScreen.x, endScreen.y, 6, 0, Math.PI * 2);
+      ctx.arc(end.x, end.y, 6, 0, Math.PI * 2);
       ctx.fill();
 
       if (label) {
@@ -163,8 +166,8 @@ export default function VectorCanvas({
         ctx.fillStyle = color;
         ctx.strokeStyle = "rgba(10, 26, 40, 0.8)";
         ctx.lineWidth = 3;
-        ctx.strokeText(label, endScreen.x + 15, endScreen.y - 15);
-        ctx.fillText(label, endScreen.x + 15, endScreen.y - 15);
+        ctx.strokeText(label, end.x + 15, end.y - 15);
+        ctx.fillText(label, end.x + 15, end.y - 15);
       }
     },
     [worldToScreen]
@@ -178,70 +181,48 @@ export default function VectorCanvas({
     if (!ctx) return;
 
     ctx.clearRect(0, 0, 800, 800);
+
+    // 3B1B dark blue background
     ctx.fillStyle = "#0a1628";
     ctx.fillRect(0, 0, 800, 800);
 
+    const currentMatrix = lerpMatrix(
+      identityMatrix(),
+      transformation,
+      animationProgress
+    );
+
     if (showGrid) {
-      drawGrid(ctx);
+      drawGrid(ctx, currentMatrix);
     }
 
     drawAxes(ctx);
 
-    // Draw individual vectors with scaling
-    let currentPos = { x: 0, y: 0 };
-    const scaledVectors: Vector2D[] = [];
+    if (showBasisVectors) {
+      const iHat = applyMatrix({ x: 1, y: 0 }, currentMatrix);
+      const jHat = applyMatrix({ x: 0, y: 1 }, currentMatrix);
+      // Red for î, green for ĵ - classic 3B1B
+      drawVector(ctx, iHat, "#ef4444", 4, "î");
+      drawVector(ctx, jHat, "#22c55e", 4, "ĵ");
+    }
 
     vectors.forEach((v, index) => {
-      const scale = vectorScales[index] || 1;
-      const scaledV = { x: v.x * scale, y: v.y * scale };
-      scaledVectors.push(scaledV);
-
+      const transformedV = applyMatrix(v, currentMatrix);
       const isHovered = hoveredIndex === index;
       const isDragging = draggingIndex === index;
 
+      // 3B1B orange for vectors, brighter when interacting
       const color = isDragging ? "#fb923c" : isHovered ? "#fdba74" : "#f97316";
       const lineWidth = isDragging || isHovered ? 4 : 3;
 
-      // Draw from origin
-      drawVector(
-        ctx,
-        { x: 0, y: 0 },
-        scaledV,
-        color,
-        lineWidth,
-        `v${index + 1}`
-      );
-
-      // If showing sum, draw dashed construction lines
-      if (showVectorSum && vectors.length > 1 && index < vectors.length - 1) {
-        drawVector(
-          ctx,
-          currentPos,
-          { x: currentPos.x + scaledV.x, y: currentPos.y + scaledV.y },
-          "rgba(96, 165, 250, 0.3)",
-          2,
-          undefined,
-          true
-        );
-      }
-
-      currentPos = { x: currentPos.x + scaledV.x, y: currentPos.y + scaledV.y };
+      drawVector(ctx, transformedV, color, lineWidth, `v${index + 1}`);
     });
-
-    // Draw sum vector
-    if (showVectorSum && vectors.length > 0) {
-      const sumVector = scaledVectors.reduce(
-        (acc, v) => ({ x: acc.x + v.x, y: acc.y + v.y }),
-        { x: 0, y: 0 }
-      );
-
-      drawVector(ctx, { x: 0, y: 0 }, sumVector, "#22c55e", 4, "sum");
-    }
   }, [
     vectors,
-    vectorScales,
+    transformation,
     showGrid,
-    showVectorSum,
+    showBasisVectors,
+    animationProgress,
     hoveredIndex,
     draggingIndex,
     drawGrid,
@@ -256,10 +237,15 @@ export default function VectorCanvas({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    const currentMatrix = lerpMatrix(
+      identityMatrix(),
+      transformation,
+      animationProgress
+    );
+
     for (let i = vectors.length - 1; i >= 0; i--) {
-      const scale = vectorScales[i] || 1;
-      const scaledV = { x: vectors[i].x * scale, y: vectors[i].y * scale };
-      const screenPos = worldToScreen(scaledV);
+      const transformedV = applyMatrix(vectors[i], currentMatrix);
+      const screenPos = worldToScreen(transformedV);
       const distance = Math.sqrt(
         Math.pow(x - screenPos.x, 2) + Math.pow(y - screenPos.y, 2)
       );
@@ -284,12 +270,16 @@ export default function VectorCanvas({
       return;
     }
 
+    const currentMatrix = lerpMatrix(
+      identityMatrix(),
+      transformation,
+      animationProgress
+    );
     let foundHover = false;
 
     for (let i = vectors.length - 1; i >= 0; i--) {
-      const scale = vectorScales[i] || 1;
-      const scaledV = { x: vectors[i].x * scale, y: vectors[i].y * scale };
-      const screenPos = worldToScreen(scaledV);
+      const transformedV = applyMatrix(vectors[i], currentMatrix);
+      const screenPos = worldToScreen(transformedV);
       const distance = Math.sqrt(
         Math.pow(x - screenPos.x, 2) + Math.pow(y - screenPos.y, 2)
       );
